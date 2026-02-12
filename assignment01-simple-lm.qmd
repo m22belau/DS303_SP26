@@ -118,7 +118,7 @@ What additional information do you get from this summary of the model output?
 
 #### Answer
 
-It shows how big the effect is, how accurate the model is, and how well it explains house prices.
+This shows how big the effect is, how accurate the model is, and how well it explains house prices.
 
 ## confint() and predict()
 
