@@ -44,13 +44,13 @@ Think back to our class discussion and your previous studies in math. Tell me be
 
 *y* = *b~0~* + *b~1~x* means ...
 
-y is the dependent variable (predicted model or estimated value outcome variable)
+y is the dependent variable
 
-*b~0~* is the parameter: constant (intercept; the number by its self): where the line begins
+*b~0~* is intercept
 
-*b~1~* is the parameter: coefficient (how much y is expected to change for a one-unit increase in x; the number multiplying): how steep the line is
+*b~1~* slope
 
-*x* is the independent variable ( explanatory or predictor variable)
+*x* is the independent variable
 
 ## Let's try it
 
@@ -76,6 +76,8 @@ You can just call upon the data (it's already in the package). I'll get you star
 head(Boston)
 
 summary(Boston)
+
+view(Boston)
 ```
 
 We learned in class that we can apply a simple linear regression using `lm`. Here is the basic format:
@@ -93,7 +95,7 @@ lm.model <-lm(medv ~ rm, data = Boston)
 If you set it up right, you should be able to run your model name in the below code chunk and view the basic model output. Give it a try:
 
 ```{r}
-summary(lm.model)
+lm.model
 ```
 
 ### Question 5
@@ -154,7 +156,7 @@ Can you convert the above code chunk to `ggplot`? Try below. Have fun with editi
 ```{r}
 library(ggplot2)
 
-ggplot(Boston, aes(x = rm, y = medv)) +
+ggplot(data = Boston, aes(x = rm, y = medv)) +
   geom_point() +  
   geom_smooth(method = "lm", se = FALSE, color = "blue") +
   labs(title = "Boston model",
@@ -216,7 +218,7 @@ Explain what you found in plain English. Do your best.
 
 #### Answer
 
-From Model 2, which looks at the relationship between crime rate (`crim`) and median home value (`medv`), we see that neighborhoods with higher crime rates tend to have lower home values. For each one-unit increase in crime rate, the median home value drops by about \$420. So generally speaking there is a negative relationship between crime and home values. It's important to note there are other factors also influence the outcome.
+From Model 2, which looks at the relationship between crime rate (`crim`) and median home value (`medv`), we see that neighborhoods with higher crime rates tend to have lower home values. So generally speaking there is a negative relationship between crime and home values. It's important to note there are other factors also influence the outcome.
 
 ## The end!
 
