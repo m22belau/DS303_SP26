@@ -218,7 +218,7 @@ Explain what you found in plain English. Do your best.
 
 #### Answer
 
-From Model 2, which looks at the relationship between crime rate (`crim`) and median home value (`medv`), we see that neighborhoods with higher crime rates tend to have lower home values. So generally speaking there is a negative relationship between crime and home values. It's important to note there are other factors also influence the outcome.
+From Model 2, which looks at the relationship between crime rate (`crim`) and median home value (`medv`), it shows neighborhoods with higher crime rates tend to have lower home values. So in short, there is a negative relationship between crime and home values.
 
 ## The end!
 
