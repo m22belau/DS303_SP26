@@ -1,0 +1,221 @@
+---
+title: "Assignment 2: Wrapping up regression"
+author: 
+  - "Student Name"
+  - "DS303, SP26"
+  - "Prof. Amber Camp"
+date: today
+format: html
+toc: true
+editor: visual
+theme: spacelab
+---
+
+# Wrapping up linear and logistic regression^\*^
+
+Assignment 2 covers linear and logistic regression models and includes many of the topics we have covered over the entire semester. You will be using `palmerpenguins` data, which includes a nice variety of continuous and categorical predictors.
+
+To submit this assignment, render this file and save as a pdf. Commit & push this qmd to GitHub and upload the pdf to Canvas.
+
+\*This assignment does not include mixed effects models, but you will be seeing that on another assignment.
+
+## Load Packages
+
+```{r, message = FALSE}
+library(lme4)
+library(tidyverse)
+# install.packages("palmerpenguins") # install if needed
+library(palmerpenguins)
+```
+
+## Load Data
+
+Load the `penguins` data and examine it below (use `summary()`, etc.)
+
+```{r}
+penguins <- penguins
+
+summary(penguins)
+
+glimpse(penguins)
+
+str(penguins)
+```
+
+## Question 1: Describe the data
+
+What information is contained in this data set? Describe at least four variables (excluding `year`), including what they represent and their data type. Lastly, describe whether you think `year` would be a useful predictor in this data.
+
+**Answer**:\
+This penguin dataset includes information about penguin species, the islands they are found on, and the biological measurements for each penguin. Some of the variables are sex (of the penguin), which is listed as a factor, bill_length_mm (length of the penguins bill), which is listed as a numeric value, bill_depth_mm  (depth of the penguin's bill), which is also a numeric value, and body_mass_g  (body mass of the penguin in grams), listed as an integer. I don't think using the year for this dataset would be useful, since we have other predictors that would be a better fit, and the biological traits would explain the data better than calendar dates.
+
+## Question 2: EDA
+
+Explore your data visually. Create at least two visualizations that show the relationship between `flipper_length_mm` and its potential predictors.
+
+```{r, warning = FALSE}
+library(ggplot2)
+
+ggplot(penguins, aes(x = body_mass_g, y = flipper_length_mm, color = species)) +
+  geom_point()
+
+ggplot(penguins, aes(x = flipper_length_mm, y = bill_length_mm, color = species)) +
+  geom_point()
+```
+
+## Question 3: Apply a linear regression
+
+Fit a simple linear regression model predicting `flipper_length_mm` from `body_mass_g`.
+
+```{r}
+model_1 <- lm(flipper_length_mm ~ body_mass_g, data = penguins)
+
+summary(model_1)
+
+```
+
+Interpret your model output, including the intercept and slope, in your own words below. Be sure to include a sentence explaining how `body_mass_g` impacts `flipper_length_mm` and whether or not the effect is significant.
+
+**Answer:**\
+The intercept of 136.7mm represents the predicted flipper length when body mass is 0g, which has no practical meaning for penguins. However, once we add in the slope which is 0.0153, it shows that for every 1g increase in body mass, flipper length increases by 0.0153mm. Since the p-value is less than 0.05 (p \< 2e-16), the effect of body mass on flipper length is statistically significant. The model explains 75.9% of the variation in flipper length, indicating a strong fit.
+
+## Question 4: Apply a multiple linear regression
+
+Fit a linear regression model predicting `flipper_length_mm` from both `body_mass_g` and `bill_length_mm`. Interpret the slopes and intercept.
+
+```{r}
+model_2 <- lm(flipper_length_mm ~ body_mass_g + bill_length_mm, data = penguins)
+
+summary(model_2)
+
+```
+
+Similar to Question 3, interpret the model output in your own words here:
+
+**Answer:**\
+The intercept of 122.0mm represents the predicted flipper length when body mass is 0g, which has no practical meaning for penguins. However, the slope for body_mass_g shows that for every 1g increase in body mass, holding bill length constant, flipper length increases by 0.01305mm. The slope for bill_length_mm shows that for every 1mm increase in bill length, holding body mass constant, flipper length increases by 0.5492mm. Both predictors are statistically significant (p \< 0.05). Adding bill_length_mm improved the model from 75.9% to 78.8%, explaining more variation in flipper length.
+
+## Question 5: Include an interaction
+
+Fit a linear regression model predicting `flipper_length_mm` from `body_mass_g,` `bill_length_mm`, and the **interaction** of the two. Interpret the slopes and intercept.
+
+```{r}
+model_3 <- lm(flipper_length_mm ~ body_mass_g * bill_length_mm, data = penguins)
+
+summary(model_3)
+```
+
+Interpret the model output in your own words below. If there was a change in the pattern of significance, try to explain the logic below as well.
+
+**Answer:**\
+The intercept of 170.6mm represents the predicted flipper length when both body mass and bill length are 0, which has no practical meaning for penguins. The body_mass_g slope is 0.0004364 (p = 0.916), showing no significance. The bill_length_mm slope is -0.5051 (p = 0.153), also not significant. However, the interaction term body_mass_g:bill_length_mm has a slope of 0.0002707 (p = 0.00234), indicating significance; meaning the effect of body mass on flipper length depends on bill length. In my previous models, both predictors were significant on their own, but once the interaction was added, it absorbed their individual effects, making them no longer significant on their own. The R² improved slightly from 78.8% to 79.4%.
+
+## Question 6: Compare models
+
+Compare the models you built in Questions 4 and 5 using `anova()`.
+
+```{r}
+anova(model_2, model_3)
+
+anova(model_1, model_2)
+
+anova(model_1, model_2, model_3)
+```
+
+-   Which is the better model? How do you know?
+
+    -   **Answer:**\
+        Model 1 (without interaction) shows that after model 1 did its best to predict flipper length, it was still off by a total of 14,270 units. Model 2 (with interaction) shows that after model 2 did its best to predict flipper length, it was still off by a total of 13,884 units which is better than Model 1. Looking at the p-value: 0.002341 it shows model 2 was better with interaction.
+
+-   Is it possible to compare the models from Questions 3 and 5 using the same method? Why or why not?
+
+    -   **Answer:**\
+        Yes, it is possible to compare the models from Questions 3 and 5 using anova() because they are nested (meaning one model contains all the same predictors as the other plus extra ones on top). anova() tests whether adding those extra predictors significantly improved the fit. Model 1 (Q3) contains body_mass_g as its only predictor, while Model 3 (Q5) includes body_mass_g, bill_length_mm, and their interaction. Because Model 3 contains everything Model 1 has plus extra predictors on top, anova() can test whether those additional predictors significantly improved the model.
+
+## Question 7: Categorical predictors
+
+Build a linear model that includes a categorical predictor of your choice. It is fine to stick with dummy coding. Optional: apply a different coding scheme AND interpret the output correctly for +1 extra credit.
+
+```{r}
+# sex
+model4 <- lm(flipper_length_mm ~ body_mass_g + species, data = penguins)
+summary(model4)
+```
+
+-   What is the reference level of your categorical predictor?
+
+    -   **Answer:** The reference level of sex is Adelie, because it does not appear in the output and serves as the baseline that speciesChinstrap and speciesGentoo is compared against.
+
+-   What is your interpretation of this model output? Address all coefficients.
+
+    -   **Answer:** The intercept of 158.9mm represents the predicted flipper length when body mass is 0g and species is Adelie (the reference group, as it is absent from the output), which has no practical meaning since a penguin cannot have 0g body mass. For every 1g increase in body mass, holding species constant, flipper length increases by 0.008402mm (p \< 2e-16, significant). Compared to Adelie penguins, Chinstrap penguins have flipper lengths that are 5.597mm longer, holding body mass constant (p \< 2e-16, significant), while Gentoo penguins have flipper lengths that are 15.68mm longer than Adelie, holding body mass constant (p \< 2e-16, significant). Overall, the model explains 85.41% of the variation in flipper length, which is an improvement over the previous sex model (77.85%), suggesting that species is a stronger predictor of flipper length than sex.
+
+## Question 8: Relevel your categorical variable
+
+Relevel your categorical variable so that a **different** level becomes the reference. Then, run the same model you did in Question 7 and interpret the output.
+
+Relevel:
+
+```{r}
+penguins$species <- relevel(factor(penguins$species), ref = "Gentoo")
+```
+
+Apply same model from Question 7:
+
+```{r}
+model5 <- lm(flipper_length_mm ~ body_mass_g + species, data = penguins)
+
+summary(model5)
+```
+
+-   What is the new reference level of your categorical predictor?
+
+    -   **Answer:** The new reference level is **Gentoo**, because it is the only species absent from the output after releveling.
+
+-   What is your interpretation of this new model output? Address all coefficients.
+
+    -   **Answer:** The intercept of 174.5mm represents the predicted flipper length when body mass is 0g and species is Gentoo, which has no practical meaning for penguins. The slope for body_mass_g shows that for every 1g increase in body mass, holding species constant, flipper length increases by 0.008402mm (p \< 2e-16, significant). Compared to Gentoo penguins, Adelie penguins have a shorter flipper length by 15.68mm, holding body mass constant (p \< 2e-16, significant). Compared to Gentoo penguins, Chinstrap penguins have a shorter flipper length by 10.08mm, holding body mass constant (p \< 2e-16, significant). The model explains 85.41% of the variation in flipper length, which is an improvement over the simple model using only body mass.
+
+## Question 9: Fit a logistic regression
+
+Apply a logistic regression. Include as many predictor variables as you'd like. Remember that your predicted outcome variable needs to be binary (or categorical with two levels).
+
+Hint: You could use `sex` or create a binary variable of your own (e.g., Gentoo vs. non-Gentoo) to test your model.
+
+```{r}
+penguins <- penguins %>%
+  mutate(is_gentoo = ifelse(species == "Gentoo", 1, 0))
+
+model_logistic <- glm(is_gentoo ~ body_mass_g + flipper_length_mm + bill_length_mm, 
+                      data = penguins, 
+                      family = binomial)
+summary(model_logistic)
+```
+
+What are your key takeaways from this model?
+
+**Answer:**\
+The intercept is -137.8 (p \< 0.05, significant). The slope for body_mass_g is 0.004523 (p = 0.00984, significant), for every 1g increase in body mass, the log odds of being Gentoo increases by 0.004523. The slope for flipper_length_mm is 0.6359 (p = 0.00013, significant), for every 1mm increase in flipper length, the log odds of being Gentoo increases by 0.6359. The slope for bill_length_mm is -0.3022 (p = 0.05069, not significant), for every 1mm increase in bill length, the log odds of being Gentoo decreases by 0.3022.
+
+From this model, body_mass_g and flipper_length_mm are significant predictors while bill_length_mm is not, meaning body mass and flipper length are the best predictors for identifying a Gentoo penguin. Both significant slopes are positive, meaning penguins with greater body mass and longer flippers are more likely to be Gentoo, which matches the EDA scatter plots from the beginning. The model fit improved dramatically from a null deviance of 446.8 to a residual deviance of 33.3, showing the model is highly accurate at predicting whether a penguin is Gentoo based on body measurements alone.
+
+## Question 10: Synthesize the information
+
+Imagine you’re a biologist studying penguin populations. Which predictors do you think are most important to measure or record in the field to predict flipper length? Why?
+
+**Answer:**\
+The most important predictors to measure in the field would be body_mass_g and bill_length_mm because they were significant across multiple models and together explained 79.4% of the variation in flipper length. body_mass_g alone explained 75.9%, making it the most important measurement. Both are also practical and easy to measure in the field using a scale and ruler. Compared to species and sex, which can be difficult to determine in the field, body mass and bill length are objective physical measurements that any researcher can record quickly and accurately.
+
+## Bonus: Stepwise Regression
+
+Perform stepwise regression to find the best model for an outcome of your choice. You will likely encounter an error about missing values. Fixing that error and explaining your findings will earn you +2 extra credit. Show your work.
+
+```{r}
+
+
+```
+
+According to this stepwise regression, explain how the final model was selected.
+
+**Answer:**\
+(Write answer here)
