@@ -1,0 +1,468 @@
+---
+title: "To bean or not to bean"
+subtitle: "Coffee Coffee Coffee"
+author: "Berylin Lau"
+institute: "Chaminade University"
+date: 5/04/26
+format: 
+  revealjs:
+    theme: sky
+editor: visual
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(caret)
+library(Metrics)
+library(randomForest)
+
+set.seed(42)
+
+# Load + drop the hamster
+coffee_clean <- read_csv("df_coffee_cleaned.csv", show_col_types = FALSE) %>%
+  filter(Processing_clean != "Other")
+
+# Fit M1 (full data)
+m1 <- lm(`Total Cup Points` ~ Altitude_m + Variety_clean + Processing_clean +
+                              Color_clean + `Moisture Percentage` +
+                              `Category One Defects` + `Category Two Defects`,
+         data = coffee_clean)
+
+# Fit M2
+m2 <- lmer(`Total Cup Points` ~ Altitude_m + Variety_clean + Processing_clean +
+                                Color_clean + `Moisture Percentage` +
+                                `Category One Defects` + `Category Two Defects` +
+                                (1 | `Country of Origin`),
+           data = coffee_clean)
+
+varcomp <- as.data.frame(VarCorr(m2))
+icc <- varcomp$vcov[1] / sum(varcomp$vcov)
+
+# Train/test
+train_idx <- createDataPartition(coffee_clean$`Total Cup Points`, p = 0.8, list = FALSE)
+train_data <- coffee_clean[train_idx, ]
+test_data  <- coffee_clean[-train_idx, ]
+
+m1_train <- lm(formula(m1), data = train_data)
+m2_train <- lmer(formula(m2), data = train_data)
+m1_preds <- predict(m1_train, newdata = test_data)
+m2_preds <- predict(m2_train, newdata = test_data, allow.new.levels = TRUE)
+m1_rmse <- rmse(test_data$`Total Cup Points`, m1_preds)
+m2_rmse <- rmse(test_data$`Total Cup Points`, m2_preds)
+
+# RF
+train_rf <- train_data %>%
+  select(`Total Cup Points`, Altitude_m, Variety_clean, Processing_clean,
+         Color_clean, `Moisture Percentage`, `Category One Defects`,
+         `Category Two Defects`, `Country of Origin`) %>%
+  rename(TCP = `Total Cup Points`, Moisture = `Moisture Percentage`,
+         Defects_1 = `Category One Defects`, Defects_2 = `Category Two Defects`,
+         Country = `Country of Origin`) %>%
+  mutate(across(c(Variety_clean, Processing_clean, Color_clean, Country), as.factor))
+
+test_rf <- test_data %>%
+  select(`Total Cup Points`, Altitude_m, Variety_clean, Processing_clean,
+         Color_clean, `Moisture Percentage`, `Category One Defects`,
+         `Category Two Defects`, `Country of Origin`) %>%
+  rename(TCP = `Total Cup Points`, Moisture = `Moisture Percentage`,
+         Defects_1 = `Category One Defects`, Defects_2 = `Category Two Defects`,
+         Country = `Country of Origin`) %>%
+  mutate(across(c(Variety_clean, Processing_clean, Color_clean, Country), as.factor))
+
+for (col in c("Variety_clean", "Processing_clean", "Color_clean", "Country")) {
+  levels(test_rf[[col]]) <- levels(train_rf[[col]])
+}
+
+set.seed(42)
+rf_model <- randomForest(TCP ~ ., data = train_rf, ntree = 500, importance = TRUE)
+rf_preds <- predict(rf_model, newdata = test_rf)
+rf_rmse <- rmse(test_rf$TCP, rf_preds)
+```
+
+## ☕ Let's Spill the Beans...
+
+. . .
+
+Let's talk about **ADDICTION** >:D
+
+. . .
+
+CAFFEINE addiction, of course! ☕
+
+. . .
+
+:::: columns
+::: {.column width="33%"}
+![](sponge_coffee.jpeg)
+:::
+
+::: {.column width="33%"}
+![](Snow_White_Coffee_GIF.gif)
+:::
+
+::: {.column width="33%"}
+![](cat_coffee.jpg)
+:::
+::::
+
+## 🌍 Meet my beans
+*Meet the Coffee Quality Institute (CQI) database*
+
+- **207** specialty Arabica coffee samples ☕
+- **22** countries of origin 🌎
+- Each coffee evaluated by **certified Q-graders**
+- Scored on a **100-point scale** — anything 80+ is "specialty"
+
+📚 *Source: LeDoux, J. (2018). Coffee quality database. GitHub: jldbc/coffee-quality-database*
+
+## 👹 "Before I had my coffee" Model
+
+. . .
+
+> *"What if I just used the taste scores — Flavor, Aroma, Acidity, Body — to predict the overall quality score?"*
+
+. . .
+
+Sounds fun and delicious, right? 🤔
+
+. . .
+
+```r
+bad_model <- lm(Total.Cup.Points ~ Flavor + Aroma + Acidity + 
+                                   Body + Aftertaste, 
+                data = coffee_data)
+summary(bad_model)
+```
+
+. . .
+
+**R² = 0.99** ✨ I'm a genius! 🤩
+
+## 😱 Moment of Realization...
+
+*"I forgot my coffee."*
+
+::: {style="text-align: center;"}
+![](no_coffee.jpeg){width="50%"}
+:::
+
+It's literally **the sum of the taste scores.** 😬
+
+## 🤡 Bean There, Done That {.smaller}
+
+*Confirming I'm not a calculator...*
+
+```r
+calc_sum <- coffee_clean$Flavor + coffee_clean$Aroma + 
+            coffee_clean$Acidity + coffee_clean$Body
+cor(coffee_clean$Total.Cup.Points, calc_sum)
+```
+
+. . .
+
+→ Correlation ≈ **1.0** (because 1 + 1 = 2 🤡)
+
+. . .
+
+::: {style="text-align: center;"}
+![](suit_coffee.jpeg){width="30%"}
+:::
+
+> *I wasn't predicting the future. I was just summarizing the past.* 💔
+. . .
+
+## 💡 Brewing the Real Question {.smaller}
+
+> **Can sensory-independent variables — country, altitude, variety, processing, and physical bean characteristics — predict the Total Cup Points of specialty Arabica coffee?**
+
+In other words: 🕵️ *Can we tell how a coffee will score WITHOUT ever tasting it?*
+
+. . .
+
+🔄 **the difference from my first question:**
+
+❌ **before:** taste scores predicting total = tautology
+
+✅ **now:** non-taste info predicting total = actual modeling
+
+::: {style="text-align: center;"}
+![](pour_coffee.jpeg){width="20%"}
+:::
+
+## 🎯 What I'm Bean-Hypothesizing {.smaller}
+
+*Hypotheses = my educated guesses BEFORE running models. Each one gets tested by one of my 3 models 👇*
+
+**H1** — Growing-region and processing variables (altitude, variety, processing) significantly predict Total Cup Points.
+
+**H2** — Country of origin explains *additional* variance beyond those.
+
+**H3** — A random forest model predicts better on held-out data than multiple linear regression.
+
+. . .
+
+:::: columns
+::: {.column width="60%"}
+
+| Hypothesis | Tested by |
+|---|---|
+| **H1** | M1 — Linear Regression |
+| **H2** | M2 — Mixed Effects |
+| **H3** | All 3 models compared |
+
+:::
+
+::: {.column width="40%"}
+
+![](hypoth.jpeg){width="80%"}
+
+:::
+::::
+
+## 🌱 The Bean Profile {.smaller}
+*Seven predictors — no yum yum taste scores allowed*
+
+🌍 **Where it grew** — Altitude, Country*
+
+🌱 **What it is** — Variety (Bourbon, Catuai, Caturra, Gesha, Typica, Other)
+
+🔄 **How it was processed** — Washed, Natural, Honey
+
+🔬 **Physical bean characteristics** — Color, Moisture, Defects (Cat 1 & 2)
+
+*Country in Models 2 & 3 only*
+
+## 🗑️ Throwing Out the Coffee Grounds {.smaller}
+*Cleaning before modeling — because the data was kind of a mess*
+
+:::: columns
+::: {.column width="70%"}
+
+🏔️ **Altitude** — was saved as words like `"1700-1930"` 🤡 had to turn it into actual numbers
+
+🌱 **Variety** — 48 different varieties??? kept top 5 + Other + Unknown
+
+⚙️ **Processing** — 10 messy labels → just 3: Washed / Natural / Honey
+
+🌈 **Color** — spelling chaos fixed (yellow-green vs yellow green vs *yello*-green 💀)
+
+❌ Tossed 5 rows missing info + 9 outlier coffees too extreme
+
+**207 → 192 coffees** ☕✨
+
+:::
+
+::: {.column width="30%"}
+
+![](fix_coffee.jpeg){width="100%"}
+
+:::
+::::
+
+## 📊 How Do These Beans Stack Up? {.smaller}
+
+```{r echo=FALSE, fig.width=8, fig.height=4}
+ggplot(coffee_clean, aes(x = `Total Cup Points`)) +
+  geom_histogram(bins = 20, fill = "tan", color = "white") +
+  labs(x = "Total Cup Points", y = "Number of coffees") +
+  theme_minimal()
+```
+
+📊 **plot type:** histogram
+
+📍 **what we're looking at:** each bar shows how many coffees got that score.
+
+🚨 **Range: ~80 to 87** — only 7 points fr. **restricted range alert** — limits how high our R² can go.
+
+## 🏔️ Reaching New Heights {.smaller}
+
+```{r echo=FALSE, fig.width=8, fig.height=4}
+ggplot(coffee_clean, aes(x = Altitude_m, y = `Total Cup Points`)) +
+  geom_point(alpha = 0.5, color = "saddlebrown") +
+  geom_smooth(method = "lm", color = "darkred") +
+  labs(x = "Altitude (meters)", y = "Total Cup Points") +
+  theme_minimal()
+```
+
+📊 **plot type:** scatter plot with a regression line
+
+📈 **Direction's right** (line slopes up → higher altitude = slightly higher score) **but lots of scatter** → altitude alone is a weak predictor
+
+## 🗺️ Beans Around the World {.smaller}
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+top_countries <- coffee_clean %>% 
+  count(`Country of Origin`) %>% filter(n >= 5) %>% pull(`Country of Origin`)
+
+coffee_clean %>%
+  filter(`Country of Origin` %in% top_countries) %>%
+  ggplot(aes(x = reorder(`Country of Origin`, `Total Cup Points`, median),
+             y = `Total Cup Points`)) +
+  geom_boxplot(fill = "lightblue") +
+  coord_flip() +
+  labs(x = NULL, y = "Total Cup Points") +
+  theme_minimal()
+```
+
+📊 **plot type:** boxplot (one box per country)
+
+📍 **what we're looking at:** each light blue box = ONE country. line in the middle = median (typical) score. ranked best at top → worst at bottom.
+
+🇪🇹 Ethiopia tops — 🇧🇷 Brazil at the bottom → **country MATTERS**
+
+## 📐 Drawing the Line in the Beans {.smaller}
+*Model 1 — Multiple Linear Regression*
+
+```r
+m1 <- lm(`Total Cup Points` ~ Altitude_m + Variety_clean + 
+                              Processing_clean + Color_clean +
+                              `Moisture Percentage` + 
+                              `Category One Defects` + 
+                              `Category Two Defects`,
+         data = coffee_clean)
+```
+
+📊 **R² = 0.35** — predictors explain 35% of variance (solid for restricted range fr)
+
+🌟 **all of these passed the vibe check (p < 0.05):**
+
+| Predictor | Effect | p-value |
+|---|---|---|
+| **Altitude** | +0.001 per meter | < 0.001 `***` ☑️ |
+| **Variety: Gesha** | +1.42 vs Bourbon | < 0.001 `***` ☑️ |
+| **Color: brownish** | +1.32 | 0.016 `*` ☑️ |
+| **Cat 2 Defects** | −0.14 each | < 0.001 `***` ☑️ |
+
+🎯 **H1 supported** ✅
+
+## 🌐 Country Roads, Bean Me Home {.smaller}
+*Model 2 — Mixed Effects (country as random effect)*
+
+```r
+m2 <- lmer(`Total Cup Points` ~ Altitude_m + Variety_clean + 
+                                Processing_clean + Color_clean +
+                                `Moisture Percentage` + 
+                                `Category One Defects` + 
+                                `Category Two Defects` +
+                                (1 | `Country of Origin`),
+           data = coffee_clean)
+```
+
+🏆 **ICC = 0.28** → 28% of unexplained variance lives at the country level fr
+
+🌀 **plot twist:** Gesha LOST its significance 😪
+
+> Gesha grows in already-good countries (Taiwan, Panama). once we let country take the credit, Gesha alone isn't special anymore.
+
+🎯 **H2 supported** ✅
+
+## 🌲 Can't See the Bean for the Trees {.smaller}
+*Model 3 — Random Forest (500 trees averaged)*
+
+```r
+rf_model <- randomForest(TCP ~ ., 
+                         data = train_rf, 
+                         ntree = 500, 
+                         importance = TRUE)
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=4.5}
+varImpPlot(rf_model, main = "Variable Importance")
+```
+
+📊 **plot type:** variable importance plot (two dot plots side-by-side)
+
+📍 **what we're looking at:** RF tells us which predictors mattered most. dots farther right = more important.
+
+🏆 **Top 3 predictors: Variety, Country, Altitude** — same story as M1 & M2
+
+## 🏆 The Grind Final {.smaller}
+*Test RMSE — lower is better*
+
+📊 **plot type:** ranking table (test RMSE = how off our predictions are on average)
+
+| Place | Model | Test RMSE |
+|---|---|---|
+| 🥇 | **M2: Mixed Effects** | **1.07** ← winner fr |
+| 🥈 | M3: Random Forest | 1.19 |
+| 🥉 | M1: Linear Regression | 1.30 |
+
+. . .
+
+❌ **H3 NOT supported** — RF came in 2nd, not 1st 😱
+
+. . .
+
+🤔 **Why tho?** small training set + restricted range + country effect is HIGHLY structured → the simpler structured model wins
+
+## ☕ The Roast of My Findings {.smaller}
+
+✅ **H1 supported** — altitude, variety, and defects all matter (Model 1 said so, all p < 0.05)
+
+✅ **H2 supported** — country adds ~28% (ICC) of unexplained variance fr
+
+❌ **H3 NOT supported** — random forest didn't beat the simpler models 🫠
+
+. . .
+
+🚧 **Limitations** (gotta be honest tho):
+
+- 📉 Restricted TCP range (only 80–87) → caps how high R² can go
+- 🇹🇼 Taiwan over-represented (61/207 samples)
+- 🤏 Small dataset (n = 192)
+- 🌱 83 rows lumped into variety "Other" (can't say much about minor varieties)
+
+## 🎤 That's the Whole Latte It {.smaller}
+
+> *"Sometimes the simpler model wins."*
+
+. . .
+
+🤔 **why I thought Random Forest would win:**
+fancier ML model = usually better predictions, right?
+
+. . .
+
+🫠 **why I was wrong:**
+
+- 🤏 small training set (only 155 rows) → RF couldn't flex
+- 📉 restricted score range (only 80–87) → no big patterns to find
+- 🌍 country effect was HIGHLY structured → mixed effects was literally built for this
+
+. . .
+
+✨ **Methodology > flexibility** — picking the right tool for the data structure beats picking the fanciest tool
+
+. . .
+
+*Mahalo for listening — sorry for the puns, I had to espresso myself.* ☕🎤
+
+## 🎁 Bonus: Why These 3 Models? {.smaller}
+*In case you ask...*
+
+🟢 **Why Linear Regression (M1)?**
+
+Most interpretable — gives clean coefficients. You almost always start here in regression analysis to get a reference point.
+
+. . .
+
+🟡 **Why Mixed Effects (M2)?**
+
+Country has 22 levels with super uneven sizes (Taiwan: 61, Madagascar: 1). Using country as a regular fixed effect would burn 21 degrees of freedom. Mixed effects handles clustered data efficiently.
+
+. . .
+
+🔴 **Why Random Forest (M3)?**
+
+Captures non-linear patterns and interactions that linear models miss. Tests the explain ↔ predict tradeoff
+
+. . .
+
+🚫 **Why NOT others?**
+
+- **Logistic regression** — only works for binary outcomes. TCP is continuous.
+- **Just a decision tree** — Random Forest is basically a more robust version.
+- **Polynomial regression** — EDA didn't show strong non-linear curves to justify it.
+- **Fancy ML** (XGBoost, neural nets) — beyond what we covered in class + would overfit a 192-row dataset.
