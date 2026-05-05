@@ -1,0 +1,341 @@
+---
+title: "coffee-analysis.qmd"
+format: html
+editor: visual
+---
+
+## Setup
+
+```{r setup, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(caret)
+library(Metrics)
+library(randomForest)
+library(broom)
+library(patchwork)
+
+set.seed(42)
+```
+
+## Load data
+
+```{r load}
+coffee <- read_csv("df_arabica_clean.csv")  
+
+glimpse(coffee)
+summary(coffee$`Total Cup Points`)
+```
+
+# Filtering out the bad brews
+
+Parse text-to-numbers (altitude), Collapse too-many categories (variety: 48→6, processing: 10→4), Fix spelling chaos (color), Drop missing-data rows, Remove outliers that would warp the regression line
+
+```{r}
+coffee <- coffee %>%
+  mutate(
+    Altitude_m = sapply(Altitude, function(x) {
+      if (is.na(x)) return(NA)
+      nums <- as.numeric(unlist(regmatches(x, gregexpr("[0-9]+", x))))
+      mean(nums)
+    })
+  )
+
+summary(coffee$Altitude_m)
+coffee %>% select(`Country of Origin`, Altitude, Altitude_m) %>% slice(1:10)
+```
+
+```{r}
+coffee <- coffee %>%
+  mutate(Altitude_m = if_else(Altitude_m > 3000, Altitude_m / 3.281, Altitude_m))
+
+summary(coffee$Altitude_m)
+```
+
+```{r}
+coffee <- coffee %>%
+  mutate(
+    Variety_clean = case_when(
+      Variety %in% c("Gesha", "Caturra", "Typica", "Bourbon", "Catuai") ~ Variety,
+      is.na(Variety) | Variety == "unknown" ~ "Unknown",
+      TRUE ~ "Other"
+    )
+  )
+
+coffee %>% count(Variety_clean) %>% arrange(desc(n))
+```
+
+```{r}
+coffee <- coffee %>%
+  mutate(
+    Processing_clean = case_when(
+      str_detect(`Processing Method`, regex("washed|wet|lavado", ignore_case = TRUE)) ~ "Washed",
+      str_detect(`Processing Method`, regex("honey|pulped|mossto", ignore_case = TRUE)) ~ "Honey",
+      str_detect(`Processing Method`, regex("natural|dry", ignore_case = TRUE)) ~ "Natural",
+      is.na(`Processing Method`) ~ NA_character_,
+      TRUE ~ "Other"
+    )
+  )
+
+coffee %>% count(Processing_clean)
+```
+
+```{r}
+coffee <- coffee %>%
+  mutate(
+    Color_clean = case_when(
+      is.na(Color) ~ NA_character_,
+      str_detect(Color, regex("brow", ignore_case = TRUE)) ~ "brownish",
+      str_detect(Color, regex("blue|bluish", ignore_case = TRUE)) ~ "blue-green",
+      str_detect(Color, regex("pale", ignore_case = TRUE)) ~ "pale-yellow",
+      str_detect(Color, regex("yell", ignore_case = TRUE)) & 
+        str_detect(Color, regex("green", ignore_case = TRUE)) ~ "yellow-green",
+      str_detect(Color, regex("yell", ignore_case = TRUE)) ~ "yellowish",
+      str_detect(Color, regex("greenish", ignore_case = TRUE)) ~ "greenish",
+      Color == "green" ~ "green",
+      TRUE ~ "other"
+    )
+  )
+
+coffee %>% count(Color_clean)
+```
+
+```{r}
+coffee_clean <- coffee %>%
+  filter(
+    !is.na(Altitude_m),
+    !is.na(Processing_clean),
+    !is.na(Color_clean)
+  )
+
+cat("Rows after dropping missing:", nrow(coffee_clean), "\n")
+
+# 2. z-score TCP, flag outliers (Camp's ±2 SD threshold)
+coffee_clean <- coffee_clean %>%
+  mutate(TCP_z = (`Total Cup Points` - mean(`Total Cup Points`)) / sd(`Total Cup Points`))
+
+# how many outliers?
+n_outliers <- sum(abs(coffee_clean$TCP_z) > 2)
+cat("TCP outliers (|z| > 2):", n_outliers, 
+    "(", round(100 * n_outliers / nrow(coffee_clean), 1), "%)\n")
+
+# remove them
+coffee_clean <- coffee_clean %>%
+  filter(abs(TCP_z) <= 2)
+
+cat("Final dataset:", nrow(coffee_clean), "rows\n")
+```
+
+```{r}
+write_csv(coffee_clean, "df_coffee_cleaned.csv")
+```
+
+# EDA — looking at the beans
+
+How do these beans stack up? (TCP histogram)
+
+```{r}
+ggplot(coffee_clean, aes(x = `Total Cup Points`)) +
+  geom_histogram(bins = 20, fill = "tan", color = "white") +
+  labs(title = "Distribution of Total Cup Points",
+       x = "Total Cup Points",
+       y = "Number of coffees") +
+  theme_minimal()
+```
+
+## Reaching new heights (TCP vs altitude)
+
+```{r}
+ggplot(coffee_clean, aes(x = Altitude_m, y = `Total Cup Points`)) +
+  geom_point(alpha = 0.5, color = "saddlebrown") +
+  geom_smooth(method = "lm", color = "darkred", se = TRUE) +
+  labs(title = "Does altitude predict cup quality?",
+       x = "Altitude (meters)",
+       y = "Total Cup Points") +
+  theme_minimal()
+```
+
+## Beans around the world (TCP by country)
+
+```{r}
+top_countries <- coffee_clean %>% 
+  count(`Country of Origin`) %>% 
+  filter(n >= 5) %>% 
+  pull(`Country of Origin`)
+
+coffee_clean %>%
+  filter(`Country of Origin` %in% top_countries) %>%
+  ggplot(aes(x = reorder(`Country of Origin`, `Total Cup Points`, median),
+             y = `Total Cup Points`)) +
+  geom_boxplot(fill = "lightblue") +
+  coord_flip() +
+  labs(title = "Cup quality by country",
+       subtitle = "(only countries with n ≥ 5 samples shown)",
+       x = NULL,
+       y = "Total Cup Points") +
+  theme_minimal()
+```
+
+# Model 1 — Drawing the Line in the Beans
+
+A multiple linear regression to test H1: do altitude, variety, processing, color, moisture, and defects predict Total Cup Points?
+
+Note: country is NOT in this model — it goes into Model 2 as a random effect.
+
+```{r}
+m1 <- lm(`Total Cup Points` ~ Altitude_m + Variety_clean + Processing_clean +
+                              Color_clean + `Moisture Percentage` +
+                              `Category One Defects` + `Category Two Defects`,
+         data = coffee_clean)
+
+summary(m1)
+```
+
+# Model 2 — Country Roads, Bean Me Home
+
+A mixed effects model that adds country as a random effect. Tests H2: does country explain variance beyond what other predictors capture?
+
+```{r}
+m2 <- lmer(`Total Cup Points` ~ Altitude_m + Variety_clean + Processing_clean +
+                                Color_clean + `Moisture Percentage` +
+                                `Category One Defects` + `Category Two Defects` +
+                                (1 | `Country of Origin`),
+           data = coffee_clean)
+
+summary(m2)
+```
+
+```{r}
+varcomp <- as.data.frame(VarCorr(m2))
+icc <- varcomp$vcov[1] / sum(varcomp$vcov)
+icc
+```
+
+```{r}
+anova(m2, m1)
+```
+
+```{r}
+AIC(m1, m2)
+```
+
+```{r}
+coffee_clean <- coffee_clean %>% filter(Processing_clean != "Other")
+cat("Rows after dropping single 'Other' processing case:", nrow(coffee_clean), "\n")
+```
+
+# Train/Test Split
+
+Setting up 80/20 split for model comparison (Week 14 method).
+
+```{r}
+set.seed(42)
+
+train_idx <- createDataPartition(coffee_clean$`Total Cup Points`, p = 0.8, list = FALSE)
+train_data <- coffee_clean[train_idx, ]
+test_data  <- coffee_clean[-train_idx, ]
+
+cat("Training set:", nrow(train_data), "rows\n")
+cat("Testing set:", nrow(test_data), "rows\n")
+```
+
+## Refitting M1 and M2 on training data
+
+```{r}
+# Refit M1 (lm) on training data
+m1_train <- lm(`Total Cup Points` ~ Altitude_m + Variety_clean + Processing_clean +
+                                    Color_clean + `Moisture Percentage` +
+                                    `Category One Defects` + `Category Two Defects`,
+               data = train_data)
+
+# Refit M2 (lmer) on training data
+m2_train <- lmer(`Total Cup Points` ~ Altitude_m + Variety_clean + Processing_clean +
+                                      Color_clean + `Moisture Percentage` +
+                                      `Category One Defects` + `Category Two Defects` +
+                                      (1 | `Country of Origin`),
+                 data = train_data)
+
+# Predict on test data
+m1_preds <- predict(m1_train, newdata = test_data)
+m2_preds <- predict(m2_train, newdata = test_data, allow.new.levels = TRUE)
+
+# Compute RMSE using Metrics::rmse (Camp's package from week 14)
+m1_rmse <- rmse(test_data$`Total Cup Points`, m1_preds)
+m2_rmse <- rmse(test_data$`Total Cup Points`, m2_preds)
+
+cat("M1 (Linear Regression) test RMSE:", round(m1_rmse, 4), "\n")
+cat("M2 (Mixed Effects)     test RMSE:", round(m2_rmse, 4), "\n")
+```
+
+# Model 3 — Can't See the Bean for the Trees
+
+A random forest model. Tests H3: does a flexible tree-based model predict TCP more accurately than the linear or mixed-effects models?
+
+```{r}
+# Step 1: rename columns to have no spaces (randomForest hates spaces)
+train_rf <- train_data %>%
+  select(`Total Cup Points`, Altitude_m, Variety_clean, Processing_clean,
+         Color_clean, `Moisture Percentage`, `Category One Defects`,
+         `Category Two Defects`, `Country of Origin`) %>%
+  rename(TCP = `Total Cup Points`,
+         Moisture = `Moisture Percentage`,
+         Defects_1 = `Category One Defects`,
+         Defects_2 = `Category Two Defects`,
+         Country = `Country of Origin`) %>%
+  mutate(across(c(Variety_clean, Processing_clean, Color_clean, Country), as.factor))
+
+test_rf <- test_data %>%
+  select(`Total Cup Points`, Altitude_m, Variety_clean, Processing_clean,
+         Color_clean, `Moisture Percentage`, `Category One Defects`,
+         `Category Two Defects`, `Country of Origin`) %>%
+  rename(TCP = `Total Cup Points`,
+         Moisture = `Moisture Percentage`,
+         Defects_1 = `Category One Defects`,
+         Defects_2 = `Category Two Defects`,
+         Country = `Country of Origin`) %>%
+  mutate(across(c(Variety_clean, Processing_clean, Color_clean, Country), as.factor))
+
+# Step 2: match factor levels between train and test
+for (col in c("Variety_clean", "Processing_clean", "Color_clean", "Country")) {
+  levels(test_rf[[col]]) <- levels(train_rf[[col]])
+}
+
+# Step 3: fit the random forest
+set.seed(42)
+rf_model <- randomForest(TCP ~ .,
+                         data = train_rf,
+                         ntree = 500,
+                         importance = TRUE)
+
+print(rf_model)
+```
+
+```{r}
+# Predict on test set
+rf_preds <- predict(rf_model, newdata = test_rf)
+
+# Compute RMSE
+rf_rmse <- rmse(test_rf$TCP, rf_preds)
+
+cat("M3 (Random Forest) test RMSE:", round(rf_rmse, 4), "\n")
+```
+
+```{r}
+varImpPlot(rf_model, main = "Variable Importance — Random Forest")
+```
+
+```{r}
+# Final test RMSE comparison
+results <- data.frame(
+  Model = c("M1: Linear Regression", 
+            "M2: Mixed Effects",
+            "M3: Random Forest"),
+  Test_RMSE = c(round(m1_rmse, 4), 
+                round(m2_rmse, 4), 
+                round(rf_rmse, 4))
+) %>% 
+  arrange(Test_RMSE)
+
+results
+```
